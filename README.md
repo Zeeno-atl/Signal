@@ -7,7 +7,7 @@ Header-only signal library, because every programmer should have one
 
 Declare some signals anywhere you want (class probably)
 
-```
+```cpp
 class Emitter {
 	public:
 		void doSomething();
@@ -21,7 +21,7 @@ class Emitter {
 
 Connect to them
 
-```
+```cpp
 Emitter e;
 
 e.signalLog.connect([](std::string msg, int num){
@@ -36,7 +36,7 @@ e.signalFinished.connect([]{
 
 Emit some signals
 
-```
+```cpp
 void Emitter::doSomething() {
 	for(int i{0}; i < 10; ++i)
 		signalLog("Hello", i);
