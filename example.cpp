@@ -15,8 +15,12 @@ class Emitter {
 int main() {
 	Emitter e;
 
-	e.signalLog.connect(
-	    [](std::string msg, int num) { std::cout << "Logging: " << msg << " with number " << num << std::endl; });
+	auto connection = e.signalLog.connect([](std::string msg, int num) { std::cout << "Logging: " << msg << " with number " << num << std::endl; });
+	e.signalLog.connect([connection](std::string, int num) {
+		if (num == 6) {
+			connection->disconnect();
+		}
+	});
 	e.signalFinished.connect([] { std::cout << "Finished" << std::endl; });
 
 	e.doSomething();
