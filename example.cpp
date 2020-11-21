@@ -2,7 +2,8 @@
 #include <iostream>
 
 #include "Signal.hpp"
-using Zeeno::Signal;
+template<typename... Args>
+using Signal = Zeeno::SignalWithMutex<std::mutex, Args...>;
 
 class Emitter {
 	public:

@@ -6,12 +6,13 @@
  * this stuff is worth it, you can buy me a beer in return. Zeeno from Atlantis
  * ----------------------------------------------------------------------------
  */
- 
+
 #pragma once
 #ifndef _ZEENO_SIGNAL_HPP
 #	define _ZEENO_SIGNAL_HPP
 
 #	include <algorithm>
+#	include <atomic>
 #	include <functional>
 #	include <memory>
 #	include <mutex>
@@ -53,7 +54,12 @@ public:
 		}
 		bool disconnect() override {
 			std::lock_guard<Mutex> lock{m_mutex};
-			return m_connected ? m_connected->disconnect(this) : false;
+			if (m_connected) {
+				bool ret    = m_connected->disconnect(this);
+				m_connected = nullptr;
+				return ret;
+			}
+			return false;
 		}
 
 	protected:
@@ -67,14 +73,16 @@ public:
 		Callback                              m_callback;
 		mutable Mutex                         m_mutex;
 	};
+	friend struct Connection;
 
 	std::shared_ptr<Zeeno::Connection> connect(Callback f) {
 		std::shared_ptr<Connection> c = std::make_shared<Connection>();
 		c->m_callback                 = std::move(f);
-		c->setConnected(this);
+		c->m_connected                = this;
 		{
 			std::lock_guard<Mutex> lock{m_mutex};
 			m_functions.push_back(c);
+			m_dirty = true;
 		}
 		return std::move(c);
 	}
@@ -82,12 +90,20 @@ public:
 	void operator()(Arguments... args) const {
 		if (isBlocked())
 			return;
-		decltype(m_functions) functions;
-		{
+
+		if (m_dirty) {
 			std::lock_guard<Mutex> lock{m_mutex};
-			functions = m_functions;
+			if (m_dirty) {
+				std::lock_guard<Mutex> cacheLock{m_cacheMutex};
+				m_cache = m_functions;
+				m_dirty = false;
+			}
 		}
-		std::for_each(functions.cbegin(), functions.cend(), [&args...](const std::shared_ptr<Connection>& c) { c->m_callback(args...); });
+
+		{
+			std::lock_guard<Mutex> cacheLock{m_cacheMutex};
+			std::for_each(m_cache.cbegin(), m_cache.cend(), [&args...](const std::shared_ptr<Connection>& c) { c->m_callback(args...); });
+		}
 	}
 
 	inline void notify(Arguments... args) const {
@@ -97,20 +113,12 @@ public:
 	inline bool disconnect(const std::shared_ptr<Connection>& c) {
 		std::lock_guard<Mutex> lock{m_mutex};
 		auto                   it = std::find(m_functions.cbegin(), m_functions.cend(), c);
-		if (it == m_functions.end())
+		if (it == m_functions.end()) {
 			return false;
+		}
 		(*it)->setConnected(nullptr);
 		m_functions.erase(it);
-		return true;
-	}
-
-	inline bool disconnect(const Connection* c) {
-		std::lock_guard<Mutex> lock{m_mutex};
-		auto                   it = std::find_if(m_functions.cbegin(), m_functions.cend(), [c](const std::shared_ptr<Connection>& s) { return s.get() == c; });
-		if (it == m_functions.end())
-			return false;
-		(*it)->setConnected(nullptr);
-		m_functions.erase(it);
+		m_dirty = true;
 		return true;
 	}
 
@@ -138,9 +146,25 @@ public:
 	}
 
 private:
-	std::vector<std::shared_ptr<Connection>> m_functions;
-	bool                                     m_block{false};
-	mutable Mutex                            m_mutex;
+	inline bool disconnect(const Connection* c) {
+		std::lock_guard<Mutex> lock{m_mutex};
+		auto                   it = std::find_if(m_functions.cbegin(), m_functions.cend(), [c](const std::shared_ptr<Connection>& s) { return s.get() == c; });
+		if (it == m_functions.end()) {
+			return false;
+		}
+		m_functions.erase(it);
+		m_dirty = true;
+		return true;
+	}
+
+private:
+	std::vector<std::shared_ptr<Connection>>         m_functions;
+	bool                                             m_block{false};
+	mutable Mutex                                    m_mutex;
+
+	mutable std::atomic_bool                         m_dirty{false};
+	mutable std::vector<std::shared_ptr<Connection>> m_cache;
+	mutable Mutex                                    m_cacheMutex;
 };
 
 template<typename... Arguments>
