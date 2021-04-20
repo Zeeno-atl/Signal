@@ -229,7 +229,7 @@ public:
 	}
 
 	inline void disconnectAll() {
-		std::for_each(m_functions.begin(), m_functions.end(), [](const std::shared_ptr<Connection>& c) { c.setConnected(nullptr); });
+		std::for_each(m_functions.begin(), m_functions.end(), [](const std::shared_ptr<Connection>& c) { c->setConnected(nullptr); });
 		m_functions.clear();
 	}
 
